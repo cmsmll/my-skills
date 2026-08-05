@@ -1,0 +1,4 @@
+# omp 任务草稿：git 忽略，omp 不忽略
+# omp 按路径直接 read/write/edit，不受 gitignore 约束（task.md 依然可读写）；
+# 仅当借助 glob 发现文件时需要 glob(gitignore: false)。
+task.md
