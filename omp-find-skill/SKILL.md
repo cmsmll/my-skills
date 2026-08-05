@@ -78,14 +78,27 @@ for (const l of lists) for (const s of l) if (!uniq.has(s.slug)) uniq.set(s.slug
 ```
 
 ### Step 5 · 一键安装（用户选定后，由你直接执行）
-**方式 A · CLI（首选）**：`skillhub install <slug> --dir <本 Agent 的 skills 目录>`。检查是否已装：
-```bash
-command -v skillhub && skillhub --version   # omp bash 为 git-bash，command -v 可用
-```
-未装则仅装 CLI：`curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh | bash -s -- --cli-only`。
-**必须带 `--dir`**，指向本 Agent 的 skills 目录（omp 用 `~/.omp/agent/skills/`），否则装到 `./skills/` 不被识别。装完只回「✅ {name} 已安装」。
 
-**方式 B · 备用 zip（无 CLI / 仅取包，跨平台）**：`GET /api/v1/download?slug=<slug>[&version=<version>]` 302 跳转到 zip，下载后解压到上述 skills 目录（可用 `bash` `tar -xf`/`unzip`）。首次装某技能时不要反复询问「是否设为优先源」，仅首次或用户明确要求时问一次。
+**目标目录（注册即生效）**：装到 `$USERPROFILE/.omp/agent/managed-skills/<slug>/`。构造路径**必须用 `$USERPROFILE`，不要用 `~`**——omp 的 bash 里 `$HOME` 为空、`~` 解析不可靠（会解析到其它用户/缺失的 `/home/*`）。该目录正是 omp 的 **`omp-managed`** provider（优先级 5）扫描位置，装好后 **下次启动会话时自动注册**；装完必须向用户说明「重开会话后生效」。
+
+**Windows 一律走 zip（方式 A），跳过 CLI**：skillhub 的 `install.sh` 依赖 `$HOME` 定位安装目录，在 omp bash 里会把二进制写到不存在的位置（如 `/home/mll/.local/bin`），装完即 `command not found`，且每次 bash 都是新进程、PATH 不继承——CLI 在 Windows 上不可靠。仅当 `command -v skillhub` 已确认命中才用 CLI。
+
+**方式 A · zip（首选，跨平台）**——全程在目标目录内完成，避开 git-bash `/tmp` 路径映射（`/tmp`→`C:\tmp`）及 `ls`/`cp` 解析不一致的问题：
+```bash
+slug=<slug>                                   # 用户选定的 skill slug
+DIR="$USERPROFILE/.omp/agent/managed-skills/$slug"
+mkdir -p "$DIR" && cd "$DIR"
+curl -fsSL -L -o skill.zip "https://api.skillhub.cn/api/v1/download?slug=$slug"
+unzip -o skill.zip && rm skill.zip            # zip 内为 SKILL.md/_meta.json/clawhub.yaml，无嵌套目录
+```
+装完 `head -3 SKILL.md` 校验 frontmatter 的 `name:` 与目录/slug 一致（不一致则改 `name:` 或目录名，否则注册不上）；确认后回「✅ {name} 已安装（重开会话后生效）」。
+首次装某技能时不要反复询问「是否设为优先源」，仅首次或用户明确要求时问一次。
+
+**方式 B · CLI（仅 CLI 已可用时）**：`command -v skillhub || exit 1` 命中才用，`--dir` 必须指向 managed-skills 的父目录：
+```bash
+command -v skillhub >/dev/null && skillhub install <slug> --dir "$USERPROFILE/.omp/agent/managed-skills"
+```
+未装 CLI 时**不要主动安装 CLI**（Windows 上不可靠），直接走方式 A。
 
 ## 一级标签（category，映射意图时用）
 
