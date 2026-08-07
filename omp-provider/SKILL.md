@@ -116,8 +116,8 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 **agent 流程**（与 register 相同，脚本不做 readline 交互）：
 
-1. 运行 `--list` → 自动读取配置，列出供应商（带编号）
-2. 用 `ask` 工具让用户选择要移除的供应商
+1. 运行 `--list` → 自动读取配置，列出供应商（编号 + baseUrl + 模型数 + key 来源）
+2. 用 `ask` 工具让用户选择要移除的供应商（**展示每个供应商的编号、名称、baseUrl、模型数**，供用户分辨）
 3. 运行 `--name <供应商名>` → 移除并确认
 
 **参数**（`OVER`）：
@@ -148,8 +148,9 @@ code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-- `--list` 自动读取配置文件并列出供应商，供用户选择。
+- `--list` 自动读取配置文件并列出供应商（含 baseUrl、模型数、key 来源），供用户选择。
 - `--name` 移除指定供应商。
+- ask 询问时把每个供应商的编号/名称/baseUrl/模型数一并展示，帮助用户分辨要移除哪个。
 - 移除后重开会话生效。
 
 ## 5. 常见坑

@@ -29,14 +29,35 @@ function parseProvidersWithRange(content) {
     const mHead = line.match(/^  ([A-Za-z0-9_.-]+):\s*$/);
     if (mHead) {
       if (cur) providers.push(cur);
-      cur = { name: mHead[1], start: i, end: null };
+      cur = { name: mHead[1], start: i, end: null, baseUrl: "", apiKey: "", auth: "", ids: [] };
+      continue;
     }
+    if (!cur) continue;
+    let m = line.match(/^    baseUrl:[ \t]*(.*)$/); if (m) { cur.baseUrl = stripVal(m[1]); continue; }
+    m = line.match(/^    apiKey:[ \t]*(.*)$/);  if (m) { cur.apiKey = stripVal(m[1]); continue; }
+    m = line.match(/^    auth:[ \t]*(.*)$/);    if (m) { cur.auth = stripVal(m[1]); continue; }
+    m = line.match(/^      -[ \t]+id:[ \t]*(.*)$/); if (m) { const id = stripVal(m[1]); if (id) cur.ids.push(id); continue; }
   }
   if (cur) providers.push(cur);
   for (let i = 0; i < providers.length; i++) {
     providers[i].end = i + 1 < providers.length ? providers[i + 1].start - 1 : lines.length - 1;
   }
   return { providers, lines };
+}
+
+function stripVal(s) {
+  s = s.replace(/^[ \t\r]+|[ \t\r]+$/g, "");
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) s = s.slice(1, -1);
+  return s;
+}
+
+// —— key 来源描述 ——
+function keySrc(p) {
+  if (p.auth === "none") return "免密";
+  if (!p.apiKey) return "无";
+  if (p.apiKey.startsWith("!")) return "!命令";
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.apiKey) && process.env[p.apiKey]) return "env";
+  return "字面值";
 }
 
 // —— 从文件中移除指定供应商，返回 (成功, 新内容) ——
@@ -91,7 +112,9 @@ async function main() {
     await say(`▸ 配置文件: ${norm(used)}`);
     await say("当前供应商：");
     for (let i = 0; i < providers.length; i++) {
-      await say(`  [${i + 1}] ${providers[i].name}`);
+      const p = providers[i];
+      const models = p.ids.length ? `${p.ids.length} 个模型` : "无模型";
+      await say(`  [${i + 1}] ${p.name}  ${p.baseUrl}  ${models}  key: ${keySrc(p)}`);
     }
     return;
   }
