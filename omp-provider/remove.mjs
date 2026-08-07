@@ -19,31 +19,17 @@ const readFileText = async (p) => {
 
 const say = (s = "") => (typeof print === "function" ? print(String(s)) : console.log(String(s)));
 
-// —— 交互式 stdin 输入（TTY 走 readline；管道输入一次性读全量、按行缓存） ——
-let pipedLines = null;
-let pipedInit = null;
-const initPiped = () => {
-  if (pipedInit) return pipedInit;
-  pipedInit = new Promise((resolve) => {
-    let buf = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (c) => { buf += c; });
-    process.stdin.on("end", () => { pipedLines = buf.split(/\r?\n/); resolve(); });
-    process.stdin.resume();
-  });
-  return pipedInit;
-};
-const ask = (q) => new Promise(async (resolve) => {
+// —— 交互式 stdin 输入 ——
+const ask = (q) => new Promise((resolve) => {
   if (typeof Bun !== "undefined" && Bun.stdin) {
     process.stdout.write(q);
     Bun.stdin.stream().getReader().read().then(({ value }) => resolve(new TextDecoder().decode(value).trim()));
-  } else if (readline && process.stdin.isTTY) {
+  } else if (readline) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
   } else {
-    if (!pipedLines) await initPiped();
-    const line = pipedLines.shift() ?? "";
-    resolve(line.trim());
+    say(q);
+    resolve(""); // fallback
   }
 });
 
