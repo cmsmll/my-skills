@@ -6,7 +6,7 @@
 //   node remove.mjs --list -f <models.yml>  # 指定配置文件
 // 全程不打印明文 key。
 
-const OVERRIDE = { name: "", list: false, file: "" };
+const OVERRIDE = { name: "", list: false, file: "", env: "" };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
 
@@ -75,6 +75,30 @@ function removeProvider(content, name) {
   return { ok: true, content: out };
 }
 
+// —— 从 .env 删除指定变量行，返回被删的变量名列表 ——
+async function removeEnvKeys(envPath, varNames) {
+  if (!varNames.length) return [];
+  let content = "";
+  try { content = await fsMod.promises.readFile(envPath, "utf8"); } catch { return []; }
+  const removed = [];
+  let changed = false;
+  const lines = content.split(/\r?\n/);
+  const out = [];
+  for (const line of lines) {
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+    if (m && varNames.includes(m[1])) {
+      removed.push(m[1]);
+      changed = true;
+      continue;
+    }
+    out.push(line);
+  }
+  if (changed) {
+    await fsMod.promises.writeFile(envPath, out.join("\n").replace(/\n{2,}/g, "\n").trimEnd() + "\n", "utf8");
+  }
+  return removed;
+}
+
 async function main() {
   const argv = (process.argv || []).slice(2).filter((a) => a && !a.startsWith("_") && !a.includes("omp_worker"));
   const opts = { ...OVERRIDE };
@@ -84,8 +108,9 @@ async function main() {
       case "--name": opts.name = next() ?? ""; break;
       case "--list": opts.list = true; break;
       case "-f": case "--file": opts.file = next() ?? ""; break;
+      case "--env": opts.env = next() ?? ""; break;
       case "-h": case "--help":
-        await say("用法: node remove.mjs --list [-f models.yml] | --name <供应商名>");
+        await say("用法: node remove.mjs --list [-f models.yml] | --name <供应商名> [--env .env路径]");
         return;
     }
   }
@@ -157,6 +182,19 @@ async function main() {
   const remaining = providers.filter((p) => !unique.includes(p.name)).map((p) => p.name);
   await say(`✓ 已移除供应商: ${unique.join(", ")}（${norm(used)}）`);
   await say(`  剩余供应商: ${remaining.join(", ") || "无"}`);
+
+  // 清理 .env：对每个被移除供应商，取其 apiKey 字段（若是 env 变量名则删除该行）
+  const removedProvs = providers.filter((p) => unique.includes(p.name));
+  const envVarNames = removedProvs.map((p) => p.apiKey).filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+  if (envVarNames.length) {
+    const envPath = opts.env || `${process.env.USERPROFILE || process.env.HOME || ""}/.omp/agent/.env`;
+    const cleaned = await removeEnvKeys(envPath, envVarNames);
+    if (cleaned.length) {
+      await say(`  ✓ 已清理 .env（${cleaned.join(", ")}）: ${norm(envPath)}`);
+    } else {
+      await say(`  · .env 中未找到 ${envVarNames.join(", ")}（可忽略）`);
+    }
+  }
   await say(`  重开会话后生效`);
 }
 

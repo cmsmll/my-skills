@@ -130,15 +130,18 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 |---|---|---|
 | `name` | `""` | 要移除的供应商名，**逗号分隔多选**，支持名称或编号（如 `"coderxiaoc,codex2api"` 或 `"1,3"`） |
 | `list` | `false` | 列出供应商（自动读配置，不删除） |
-| `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+| `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+| `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
+
+**env 清理**：移除供应商时，若其 `models.yml` 的 `apiKey` 是 env 变量名，会同步从 `.env` 删除对应变量行。
 
 **示例**：
 
 ```js
 // 列出供应商（自动读配置）
 let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "", list: true, file: "" };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
+const OVER = { name: "", list: true, file: "", env: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\", env: \"\" };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -146,8 +149,8 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 ```js
 // 移除指定供应商（多选：名称或编号逗号分隔）
 let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "coderxiaoc,codex2api", list: false, file: "" };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
+const OVER = { name: "coderxiaoc,codex2api", list: false, file: "", env: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\", env: \"\" };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -155,6 +158,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 - `--list` 自动读取配置文件并列出供应商（含 baseUrl、模型数、key 来源），供用户选择。
 - `--name` 移除指定供应商，**逗号分隔多选**（支持名称 `"a,b"` 或编号 `"1,3"`，可混用）。
 - ask 询问时把每个供应商的编号/名称/baseUrl/模型数一并展示，帮助用户分辨要移除哪些（可多选）。
+- 移除时同步清理 `.env` 中的对应 key 变量。
 - 移除后重开会话生效。
 
 ## 5. 常见坑
