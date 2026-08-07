@@ -68,6 +68,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 | `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 | `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
 | `timeout` | `8` | 探测超时秒 |
+| `providers` | `[]` | **批量**：`[{url,key,name?,models?,all?}, ...]` 一次注册多个供应商 |
 
 **key 存储**：注册时 API Key 写入 `.env`（默认 `~/.omp/agent/.env`，omp 启动自动加载），`models.yml` 只存 env 变量名（供应商名大写 + `_API_KEY`），不落明文。可用 `--env` 指定其它 .env 文件。
 
@@ -97,6 +98,24 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 - 供应商不可用（HTTP 非 200）不注册。
 - 同名供应商已存在时用 `ask`（y/N）确认覆盖。
 - **key 不落明文**：写入 `~/.omp/agent/.env`，models.yml 的 `apiKey` 是生成的 env 变量名。
+
+**批量注册**（一次注册多个供应商，`providers` 数组）：
+
+```js
+// 多个供应商一次注册：每项 {url,key,name?,models?,all?}
+let code = await read("skill://omp-provider/register.mjs");
+const OVER = { file: "", env: "", timeout: 8, providers: [
+  { url: "https://ark.cn-beijing.volces.com/api/v3", key: "sk-xxx", name: "ark", all: true },
+  { url: "https://token.sensenova.cn/v1", key: "sk-yyy", name: "sensenova", models: "glm-5.2,deepseek-v4-flash" },
+] };
+code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", env: \"\", timeout: 8, providers: [] };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+- `providers` 每项含 `url`/`key`（必填），`name`/`models`/`all`（可选，语义与单例相同），`timeout` 可用单项覆盖。
+- 批量模式下每个供应商独立探测、独立写入，任一失败不阻塞其余；有失败时退出码 1。
+- 两个供应商都注册时，同样先用 `ask` 收集每个供应商的模型多选与确认，再一次性填入 `providers`。
 
 ## 3. list — 查看供应商模型
 

@@ -6,9 +6,10 @@
 //   node register.mjs --url <url> --key <key> --models "1,3,5"  # 按编号选模型
 //   node register.mjs --url <url> --key <key> --name my-provider --all  # 指定供应商名
 //   node register.mjs --interactive                        # 交互模式（stdin 输入）
+// 批量：OVERRIDE.providers = [{url,key,name?,models?,all?}, ...] 一次注册多个
 // 全程不打印明文 key。
 
-const OVERRIDE = { url: "", key: "", name: "", models: "", all: false, interactive: false, file: "", env: "", timeout: 8 };
+const OVERRIDE = { url: "", key: "", name: "", models: "", all: false, interactive: false, file: "", env: "", timeout: 8, providers: [] };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
 const pathMod = await import("node:path");
@@ -170,7 +171,119 @@ async function writeEnvKey(envPath, varName, key) {
   return content;
 }
 
+// —— 单个供应商完整注册（探测→选模型→写 .env+models.yml） ——
+async function registerOne(sp) {
+  const name = sp.name || nameFromUrl(sp.url);
+  await say(`\n▸ 探测 ${name} (${sp.url}) ...`);
+  const probe = await probeModels(sp.url, sp.key, sp.timeout);
+
+  if (!probe.ok) {
+    await say(`✗ 供应商不可用: ${probe.label}（${probe.ids.length} 个模型被列出但 HTTP 非 200，不会注册）`);
+    return false;
+  }
+
+  if (!probe.ids.length) {
+    await say("✗ 服务器返回了 200 但模型列表为空，可能接口不兼容，不注册");
+    return false;
+  }
+
+  await say(`✓ 供应商可达，服务端共 ${probe.ids.length} 个模型:\n`);
+  for (let i = 0; i < probe.ids.length; i++) {
+    await say(`  [${i + 1}] ${probe.ids[i]}`);
+  }
+
+  // 确定选哪些模型
+  let selected = [];
+  if (sp.all) {
+    selected = probe.ids;
+  } else if (sp.models) {
+    const parts = sp.models.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const p of parts) {
+      const n = Number(p);
+      if (!isNaN(n) && n >= 1 && n <= probe.ids.length) {
+        selected.push(probe.ids[n - 1]);
+      } else if (probe.ids.includes(p)) {
+        selected.push(p);
+      }
+    }
+    if (!selected.length) {
+      await say("✗ models 未匹配到有效模型，不注册");
+      return false;
+    }
+  } else if (sp.interactive) {
+    await say("  输入编号（逗号分隔）或 all：");
+    const ans = await ask("> ");
+    if (ans.toLowerCase() === "all") {
+      selected = probe.ids;
+    } else {
+      for (const p of ans.split(",").map((s) => s.trim()).filter(Boolean)) {
+        const n = Number(p);
+        if (!isNaN(n) && n >= 1 && n <= probe.ids.length) selected.push(probe.ids[n - 1]);
+      }
+    }
+  } else {
+    // 纯探测模式，只输出不注册
+    await say(`\n▸ 使用 all 注册全部，或 models 按编号选择`);
+    return null; // 探测完成
+  }
+
+  if (!selected.length) {
+    await say("✗ 未选择任何模型，不注册");
+    return false;
+  }
+
+  // 检查同名供应商
+  let existing = "";
+  try { existing = await readFileText(sp.cfg); } catch {}
+  const existingNames = parseProviderNames(existing);
+  if (existingNames.includes(name)) {
+    await say(`⚠ 供应商 "${name}" 已存在配置中，覆盖？`);
+    if (sp.interactive) {
+      const ans = await ask("y/N: ");
+      if (ans.toLowerCase() !== "y") {
+        await say("✗ 已取消注册");
+        return false;
+      }
+    } else {
+      await say("✗ 已取消注册（用 name 指定不同的供应商名）");
+      return false;
+    }
+  }
+
+  const varName = envVarName(name);
+  await writeEnvKey(sp.envPath, varName, sp.key);
+  await say(`✓ API Key 已写入 ${sp.norm(sp.envPath)}（${varName}）`);
+
+  await writeModelsYaml(sp.cfg, name, sp.url, varName, selected);
+  await say(`\n✓ ${name} 已注册到 ${sp.norm(sp.cfg)}`);
+  await say(`  apiKey 引用: ${varName}（omp 启动时从 .env 加载）`);
+  await say(`  注册模型: ${selected.join(", ")}`);
+  await say(`  重开会话后生效`);
+  return true;
+}
+
 async function main() {
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const norm = (p) => String(p).replace(/\\/g, "/");
+  const defaultCfg = pathMod.join(home, ".omp", "agent", "models.yml");
+  const defaultEnv = pathMod.join(home, ".omp", "agent", ".env");
+
+  // 批量模式：providers 数组一次注册多个
+  if (Array.isArray(OVERRIDE.providers) && OVERRIDE.providers.length) {
+    const ok = [];
+    for (const p of OVERRIDE.providers) {
+      const r = await registerOne({
+        url: p.url, key: p.key, name: p.name || "", models: p.models || "",
+        all: !!p.all, interactive: false, timeout: (p.timeout || OVERRIDE.timeout) * 1000,
+        cfg: OVERRIDE.file || defaultCfg, envPath: OVERRIDE.env || defaultEnv, norm,
+      });
+      ok.push(r);
+    }
+    if (typeof process !== "undefined" && ok.includes(false)) process.exitCode = 1;
+    return;
+  }
+
+  // 命令行/单例模式
   const argv = (process.argv || []).slice(2).filter((a) => a && !a.startsWith("_") && !a.includes("omp_worker"));
   const opts = { ...OVERRIDE };
   for (let i = 0; i < argv.length; i++) {
@@ -201,7 +314,7 @@ async function main() {
   }
 
   if (!opts.url) {
-    await say("✗ 需要 --url（或 --interactive 交互输入）");
+    await say("✗ 需要 --url（或 providers 批量、--interactive 交互输入）");
     if (typeof process !== "undefined") process.exitCode = 1;
     return;
   }
@@ -211,105 +324,13 @@ async function main() {
     return;
   }
 
-  const name = opts.name || nameFromUrl(opts.url);
-  await say(`▸ 探测 ${name} (${opts.url}) ...`);
-  const probe = await probeModels(opts.url, opts.key, opts.timeout * 1000);
-
-  if (!probe.ok) {
-    await say(`✗ 供应商不可用: ${probe.label}（${probe.ids.length} 个模型被列出但 HTTP 非 200，不会注册）`);
-    if (typeof process !== "undefined") process.exitCode = 1;
-    return;
-  }
-
-  if (!probe.ids.length) {
-    await say("✗ 服务器返回了 200 但模型列表为空，可能接口不兼容，不注册");
-    if (typeof process !== "undefined") process.exitCode = 1;
-    return;
-  }
-
-  await say(`✓ 供应商可达，服务端共 ${probe.ids.length} 个模型:\n`);
-  for (let i = 0; i < probe.ids.length; i++) {
-    await say(`  [${i + 1}] ${probe.ids[i]}`);
-  }
-
-  // 确定选哪些模型
-  let selected = [];
-  if (opts.all) {
-    selected = probe.ids;
-  } else if (opts.models) {
-    const parts = opts.models.split(",").map((s) => s.trim()).filter(Boolean);
-    for (const p of parts) {
-      const n = Number(p);
-      if (!isNaN(n) && n >= 1 && n <= probe.ids.length) {
-        selected.push(probe.ids[n - 1]);
-      } else if (probe.ids.includes(p)) {
-        selected.push(p);
-      }
-    }
-    if (!selected.length) {
-      await say("✗ --models 未匹配到有效模型，不注册");
-      if (typeof process !== "undefined") process.exitCode = 1;
-      return;
-    }
-  } else if (opts.interactive || (!opts.all && !opts.models)) {
-    // 探测模式：只输出不注册
-    await say(`\n▸ 使用 --all 注册全部，或 --models "1,3,5" 按编号选择`);
-    if (opts.interactive) {
-      await say("  输入编号（逗号分隔）或 all：");
-      const ans = await ask("> ");
-      if (ans.toLowerCase() === "all") {
-        selected = probe.ids;
-      } else {
-        for (const p of ans.split(",").map((s) => s.trim()).filter(Boolean)) {
-          const n = Number(p);
-          if (!isNaN(n) && n >= 1 && n <= probe.ids.length) selected.push(probe.ids[n - 1]);
-        }
-      }
-    }
-    if (!selected.length) {
-      return; // 纯探测模式，不注册
-    }
-  }
-
-  if (!selected.length) {
-    return; // 无选择，不注册
-  }
-
-  // 写入：key 落盘到 .env，models.yml 只存 env 变量名
-  const home = process.env.USERPROFILE || process.env.HOME || "";
-  const cfg = opts.file || pathMod.join(home, ".omp", "agent", "models.yml");
-  const envPath = opts.env || pathMod.join(home, ".omp", "agent", ".env");
-  const norm = (p) => String(p).replace(/\\/g, "/");
-
-  // 检查同名供应商
-  let existing = "";
-  try { existing = await readFileText(cfg); } catch {}
-  const existingNames = parseProviderNames(existing);
-  if (existingNames.includes(name)) {
-    await say(`⚠ 供应商 "${name}" 已存在配置中，覆盖？`);
-    if (opts.interactive) {
-      const ans = await ask("y/N: ");
-      if (ans.toLowerCase() !== "y") {
-        await say("✗ 已取消注册");
-        if (typeof process !== "undefined") process.exitCode = 1;
-        return;
-      }
-    } else {
-      await say("✗ 已取消注册（用 --name 指定不同的供应商名）");
-      if (typeof process !== "undefined") process.exitCode = 1;
-      return;
-    }
-  }
-
-  const varName = envVarName(name);
-  await writeEnvKey(envPath, varName, opts.key);
-  await say(`✓ API Key 已写入 ${norm(envPath)}（${varName}）`);
-
-  await writeModelsYaml(cfg, name, opts.url, varName, selected);
-  await say(`\n✓ ${name} 已注册到 ${norm(cfg)}`);
-  await say(`  apiKey 引用: ${varName}（omp 启动时从 .env 加载）`);
-  await say(`  注册模型: ${selected.join(", ")}`);
-  await say(`  重开会话后生效`);
+  const r = await registerOne({
+    url: opts.url, key: opts.key, name: opts.name || "", models: opts.models || "",
+    all: !!opts.all, interactive: !!opts.interactive,
+    timeout: opts.timeout * 1000,
+    cfg: opts.file || defaultCfg, envPath: opts.env || defaultEnv, norm,
+  });
+  if (typeof process !== "undefined" && r === false) process.exitCode = 1;
 }
 
 await main();
