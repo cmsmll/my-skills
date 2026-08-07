@@ -1,6 +1,6 @@
 ---
 name: omp-provider
-description: 供应商管理命令集：查看供应商状态、注册新供应商、查看供应商模型。当用户说『供应商状态』『查看供应商』『注册供应商』『添加供应商』『添加模型』『注册模型』『查看模型』『供应商列表』『移除供应商』『删除供应商』『provider status』『register provider』『remove provider』等需要管理 omp 模型供应商时使用本技能。交互统一用 ask 多选+确认：status（探测配置供应商可用性）、register（URL+key 探测→ask 多选模型→确认→写 models.yml+env）、list（查看配置供应商模型列表）、remove（list→ask 多选供应商→确认→移除+清理 env）。
+description: 供应商管理命令集：查看供应商状态、注册新供应商、查看供应商模型、移除供应商、更新供应商模型。当用户说『供应商状态』『查看供应商』『注册供应商』『添加供应商』『添加模型』『注册模型』『查看模型』『供应商列表』『移除供应商』『删除供应商』『更新供应商』『更新模型』『新增模型』『新模型』『provider status』『register provider』『remove provider』『update provider』等需要管理 omp 模型供应商时使用本技能。交互统一用 ask 多选+确认：status（探测配置供应商可用性）、register（URL+key 探测→ask 多选模型→确认→写 models.yml+env）、list（查看配置供应商模型列表）、remove（list→ask 多选供应商→确认→移除+清理 env）、update（探测新增→ask 多选→追加新模型）。
 ---
 
 # omp-provider — 供应商管理
@@ -18,7 +18,7 @@ code = code.replace("const OVERRIDE = { file: \"\", timeout: 8, verbose: false }
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-- **脚本路径**：注册后 `skill://omp-provider/status.mjs` / `register.mjs` / `list.mjs`。
+- **脚本路径**：注册后 `skill://omp-provider/status.mjs` / `register.mjs` / `list.mjs` / `remove.mjs` / `update.mjs`。
 - **参数**：在 `OVER` 里改。各命令参数不同，见下。
 
 ## 1. status — 查看供应商状态
@@ -183,7 +183,66 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 - 移除时同步清理 `.env` 中的对应 key 变量。
 - 移除后重开会话生效。
 
-## 5. 常见坑
+## 5. update — 更新供应商模型
+
+供应商推出新模型时，探测其服务器模型列表，对比配置中已有模型，把新增模型追加进 `models.yml`。
+
+**agent 流程**（全程用 `ask` 工具交互，脚本不做 readline）：
+
+1. 运行 `--list` → 列出供应商（编号仅查看数量；含 baseUrl、模型数、key 来源）
+2. 用 `ask` 让用户选择要更新的供应商
+3. 运行 `--name <供应商> --probe` → 探测该供应商服务器模型，**标记 🔺 新增（未配置）**；输出 `__JSON__` 含 fresh 列表
+4. 用 `ask`（`multi: true`）让用户多选要追加的新模型，或用 `ask`（y/N）确认全部新增
+5. 运行 `--all`（全部新增）或 `--add "id1,id2"`（按所选）→ 追加写入
+
+**参数**（`OVER`）：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `name` | `""` | 要更新的供应商名或编号 |
+| `list` | `false` | 列出供应商（自动读配置，不修改） |
+| `probe` | `false` | 探测该供应商服务器模型，标记新增（不写入） |
+| `all` | `false` | 探测后自动追加**全部**新增模型 |
+| `add` | `""` | 按逗号分隔的模型 id 追加（跳过已在配置中的） |
+| `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+| `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
+| `timeout` | `8` | 探测超时秒 |
+
+**示例**：
+
+```js
+// 探测某供应商（看新增模型）
+let code = await read("skill://omp-provider/update.mjs");
+const OVER = { name: "sensenova", list: false, probe: true, all: false, add: "", file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+```js
+// 全部新增模型追加
+let code = await read("skill://omp-provider/update.mjs");
+const OVER = { name: "sensenova", list: false, probe: false, all: true, add: "", file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+```js
+// 按所选 id 追加（多选）
+let code = await read("skill://omp-provider/update.mjs");
+const OVER = { name: "sensenova", list: false, probe: false, all: false, add: "new-model-a,new-model-b", file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+- 先 `--probe` 看新增，用 `ask` 多选后 `--add` 落所选 id（或 `--all` 全量）。
+- 已配置的模型自动跳过（不重复追加）；`add` 省略或全部已配置时不会写多余内容。
+- key 从 `.env` 读取并用于探测，不落明文。
+- 追加后重开会话生效。
+
+## 6. 常见坑
 
 - **路径解析**：Windows 上 `bash` 的 `/tmp` 与 `node` 的 `/tmp` 可能映射到不同盘符。传给 `-f` 时用绝对路径（如 `C:/Users/...`）或系统环境变量展开后的路径。
 - **`models.yml` vs `models.yaml`**：脚本优先 `.yml`，缺省回退 `.yaml`。
