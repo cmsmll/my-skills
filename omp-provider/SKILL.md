@@ -114,27 +114,42 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ## 4. remove — 移除供应商
 
-直接运行即显示 TUI 列表，选择编号 → 确认 → 删除。
+**agent 流程**（与 register 相同，脚本不做 readline 交互）：
+
+1. 运行 `--list` → 自动读取配置，列出供应商（带编号）
+2. 用 `ask` 工具让用户选择要移除的供应商
+3. 运行 `--name <供应商名>` → 移除并确认
 
 **参数**（`OVER`）：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
+| `name` | `""` | 要移除的供应商名 |
+| `list` | `false` | 列出供应商（自动读配置，不删除） |
 | `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 
 **示例**：
 
 ```js
-// 直接运行，TUI 选择
+// 列出供应商（自动读配置）
 let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { file: "" };
-code = code.replace("const OVERRIDE = { file: \"\" };",
+const OVER = { name: "", list: true, file: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-- 输出编号列表，输入逗号分隔编号多选。
-- 确认 `y/N` 后执行删除。
+```js
+// 移除指定供应商
+let code = await read("skill://omp-provider/remove.mjs");
+const OVER = { name: "coderxiaoc", list: false, file: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+- `--list` 自动读取配置文件并列出供应商，供用户选择。
+- `--name` 移除指定供应商。
 - 移除后重开会话生效。
 
 ## 5. 常见坑

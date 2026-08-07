@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// omp-provider remove —— 移除供应商（TUI 选择 → 确认 → 删除）
-// 用法:
-//   node remove.mjs                        # 交互选择要移除的供应商
-//   node remove.mjs -f <models.yml>        # 指定配置文件
+// omp-provider remove —— 移除供应商
+// 用法（agent 通过 ask 工具交互，脚本不做 readline）:
+//   node remove.mjs --list                  # 自动读配置，列出供应商
+//   node remove.mjs --name <供应商名>      # 移除指定供应商
+//   node remove.mjs --list -f <models.yml>  # 指定配置文件
 // 全程不打印明文 key。
 
-const OVERRIDE = { file: "" };
+const OVERRIDE = { name: "", list: false, file: "" };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
-const readline = typeof Bun !== "undefined" ? null : await import("node:readline").catch(() => null);
 
 const readFileText = async (p) => {
   if (typeof read === "function") {
@@ -18,20 +18,6 @@ const readFileText = async (p) => {
 };
 
 const say = (s = "") => (typeof print === "function" ? print(String(s)) : console.log(String(s)));
-
-// —— 交互式 stdin 输入 ——
-const ask = (q) => new Promise((resolve) => {
-  if (typeof Bun !== "undefined" && Bun.stdin) {
-    process.stdout.write(q);
-    Bun.stdin.stream().getReader().read().then(({ value }) => resolve(new TextDecoder().decode(value).trim()));
-  } else if (readline) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
-  } else {
-    say(q);
-    resolve(""); // fallback
-  }
-});
 
 // —— 解析固定 2 空格缩进 YAML，返回供应商名及其行区间 ——
 function parseProvidersWithRange(content) {
@@ -70,19 +56,21 @@ function removeProvider(content, name) {
 
 async function main() {
   const argv = (process.argv || []).slice(2).filter((a) => a && !a.startsWith("_") && !a.includes("omp_worker"));
-  let cfgOverride = "";
+  const opts = { ...OVERRIDE };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]; const next = () => argv[++i];
     switch (a) {
-      case "-f": case "--file": cfgOverride = next() ?? ""; break;
+      case "--name": opts.name = next() ?? ""; break;
+      case "--list": opts.list = true; break;
+      case "-f": case "--file": opts.file = next() ?? ""; break;
       case "-h": case "--help":
-        await say("用法: node remove.mjs  [-f models.yml]");
+        await say("用法: node remove.mjs --list [-f models.yml] | --name <供应商名>");
         return;
     }
   }
 
   const home = process.env.USERPROFILE || process.env.HOME || "";
-  let cfg = cfgOverride || `${home}/.omp/agent/models.yml`;
+  let cfg = opts.file || `${home}/.omp/agent/models.yml`;
   const norm = (p) => String(p).replace(/\\/g, "/");
 
   let content = null, used = "";
@@ -98,40 +86,33 @@ async function main() {
   const providers = parseProvidersWithRange(content).providers;
   if (!providers.length) { await say("⚠ 配置里没有 providers 块"); return; }
 
-  // TUI：编号列表 → 选择 → 确认
-  await say(`▸ 配置文件: ${norm(used)}`);
-  await say("选择要移除的供应商：");
-  for (let i = 0; i < providers.length; i++) {
-    await say(`  [${i + 1}] ${providers[i].name}`);
-  }
-
-  const ans = await ask("\n输入编号（逗号分隔多选）: ");
-  const targets = [];
-  for (const p of ans.split(",").map((s) => s.trim()).filter(Boolean)) {
-    const n = Number(p);
-    if (!isNaN(n) && n >= 1 && n <= providers.length) {
-      targets.push(providers[n - 1].name);
-    } else {
-      await say(`⚠ 无效编号 "${p}"，跳过`);
+  // --list：自动读取配置并列出供应商（带编号，给 agent 转述用户选择）
+  if (opts.list) {
+    await say(`▸ 配置文件: ${norm(used)}`);
+    await say("当前供应商：");
+    for (let i = 0; i < providers.length; i++) {
+      await say(`  [${i + 1}] ${providers[i].name}`);
     }
-  }
-  const unique = [...new Set(targets)];
-  if (!unique.length) { await say("✗ 未选择，取消"); return; }
-
-  await say(`\n将移除 ${unique.length} 个供应商：${unique.join(", ")}`);
-  const confirm = await ask("确认？y/N: ");
-  if (confirm.toLowerCase() !== "y") { await say("✗ 已取消"); return; }
-
-  // 执行
-  let content2 = content;
-  for (const t of unique) {
-    const { ok, content: newC } = removeProvider(content2, t);
-    if (ok) content2 = newC;
+    return;
   }
 
-  await fsMod.promises.writeFile(used, content2, "utf8");
-  const remaining = providers.filter((p) => !unique.includes(p.name)).map((p) => p.name);
-  await say(`✓ 已移除: ${unique.join(", ")}（${norm(used)}）`);
+  // --name：移除指定供应商
+  if (!opts.name) {
+    await say("✗ 需要 --list 查看后 --name 指定要移除的供应商");
+    if (typeof process !== "undefined") process.exitCode = 1;
+    return;
+  }
+
+  const { ok, content: newContent } = removeProvider(content, opts.name);
+  if (!ok) {
+    await say(`✗ 未找到供应商 "${opts.name}"。可用：${providers.map((p) => p.name).join(", ")}`);
+    if (typeof process !== "undefined") process.exitCode = 1;
+    return;
+  }
+
+  await fsMod.promises.writeFile(used, newContent, "utf8");
+  const remaining = providers.filter((p) => p.name !== opts.name).map((p) => p.name);
+  await say(`✓ 已移除供应商 "${opts.name}"（${norm(used)}）`);
   await say(`  剩余供应商: ${remaining.join(", ") || "无"}`);
   await say(`  重开会话后生效`);
 }
