@@ -14,7 +14,7 @@
 ## 2. 开发流程
 
 ```
-本地编写 → 自查 → 用户查验 → 用户下达注册指令 → 复制到 managed-skills → 提交推送 → 重开会话生效
+本地编写 → 自查 → 用户查验 → 用户下达注册指令 → 复制到 managed-skills → 提交本地（推送需指令） → 重开会话生效
 ```
 
 ### Step 1 · 本地编写
@@ -41,8 +41,10 @@ cp "E:/CMS/code/my-skills/<skill-name>/SKILL.md" "$USERPROFILE/.omp/agent/manage
 - 注册区存在同名旧版时：**先经用户确认**再覆盖或删除；
 - 校验：`head -3` 确认 frontmatter `name:` 与目录名一致。
 
-### Step 5 · 提交并推送
-- `git add` → `git commit -m "<skill-name>: <变更摘要>"` → `git push origin main`（远程：`git@github.com:cmsmll/my-skills.git`）。
+### Step 5 · 提交（本地自动，远端需指令）
+- `git add` → `git commit -m "<skill-name>: <变更摘要>"` → **自动提交到本地**。
+- **不自动推送远端**。需要推送到远端正由用户下达指令（如「推送」「推送到远端」）。
+- 远程：`git@github.com:cmsmll/my-skills.git`。
 
 ### Step 6 · 生效
 - omp 技能在启动时扫描注册：注册后**重开会话**才可见；当前会话内 `skill://<skill-name>` 可能仍报 `Unknown skill`，属正常现象。
