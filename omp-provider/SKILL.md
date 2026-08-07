@@ -1,6 +1,6 @@
 ---
 name: omp-provider
-description: 供应商管理命令集：查看供应商状态、注册新供应商、查看供应商模型。当用户说『供应商状态』『查看供应商』『注册供应商』『添加供应商』『添加模型』『注册模型』『查看模型』『供应商列表』『provider status』『register provider』等需要管理 omp 模型供应商时使用本技能。覆盖：status（探测配置供应商可用性）、register（URL+key 探测→选模型→写 models.yml）、list（查看配置供应商模型列表）。
+description: 供应商管理命令集：查看供应商状态、注册新供应商、查看供应商模型。当用户说『供应商状态』『查看供应商』『注册供应商』『添加供应商』『添加模型』『注册模型』『查看模型』『供应商列表』『移除供应商』『删除供应商』『provider status』『register provider』『remove provider』等需要管理 omp 模型供应商时使用本技能。交互统一用 ask 多选+确认：status（探测配置供应商可用性）、register（URL+key 探测→ask 多选模型→确认→写 models.yml+env）、list（查看配置供应商模型列表）、remove（list→ask 多选供应商→确认→移除+清理 env）。
 ---
 
 # omp-provider — 供应商管理
@@ -48,12 +48,13 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 用户提供 URL 和 API Key，探测供应商可用性，列出模型供选择，写入 `models.yml`。
 
-**流程**（由 agent 按步骤执行）：
+**流程**（由 agent 按步骤执行，全程用 `ask` 工具交互）：
 
-1. 收集 URL 和 API Key（用 `ask` 工具或命令行参数）
-2. 运行探测模式 → 列出服务器模型及编号
-3. 让用户选择模型（`ask` 工具，多选）
-4. 运行注册模式 → 写入 `models.yml`
+1. 用 `ask` 收集 URL、API Key（以及可选供应商名）
+2. 运行探测模式 → 列出服务器模型（编号仅用于查看数量/规模）
+3. 用 `ask` 让用户**多选**要注册的模型（`multi: true`，每个选项展示模型 id）
+4. 用 `ask` 让用户**确认**所选模型列表（y/N）
+5. 运行注册模式，`models` 填选中的模型 id → 写入 `models.yml`
 
 **参数**（`OVER`）：
 
@@ -62,7 +63,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 | `url` | `""` | 供应商 baseUrl（如 `https://example.com/v1`） |
 | `key` | `""` | API Key |
 | `name` | `""` | 供应商名，留空自动从 URL 生成 |
-| `models` | `""` | 逗号分隔的模型编号或 id，如 `"1,3,5"` 或 `"gpt-4,gpt-3.5"` |
+| `models` | `""` | 逗号分隔的模型 id（如 `"gpt-4,gpt-3.5"`）|
 | `all` | `false` | 注册全部模型 |
 | `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 | `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
@@ -74,8 +75,8 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ```js
 let code = await read("skill://omp-provider/register.mjs");
-const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "", models: "", all: false, interactive: false, file: "", timeout: 8 };
-code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", timeout: 8 };",
+const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "", models: "", all: false, interactive: false, file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -84,16 +85,17 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ```js
 let code = await read("skill://omp-provider/register.mjs");
-const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "my-provider", models: "1,3,5", all: false, interactive: false, file: "", env: "", timeout: 8 };
+const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "my-provider", models: "gpt-4,gpt-3.5", all: false, interactive: false, file: "", env: "", timeout: 8 };
 code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-- `models` 支持编号（如 `"1,3,5"`）或模型 id（如 `"gpt-4,gpt-3.5"`）。
+- `models` 填**模型 id**（逗号分隔，如 `"gpt-4,gpt-3.5"`）；探测列表里的编号只是展示序号（用于查看数量/规模），选择一律用 `ask` 多选 id，不填编号。
+- 用 `ask`（`multi: true`）收集用户多选，再用 `ask`（y/N）确认后落入 `models` 参数。
 - `all: true` 注册全部模型。
 - 供应商不可用（HTTP 非 200）不注册。
-- 同名供应商已存在时提示覆盖确认。
+- 同名供应商已存在时用 `ask`（y/N）确认覆盖。
 - **key 不落明文**：写入 `~/.omp/agent/.env`，models.yml 的 `apiKey` 是生成的 env 变量名。
 
 ## 3. list — 查看供应商模型
@@ -118,17 +120,18 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ## 4. remove — 移除供应商
 
-**agent 流程**（与 register 相同，脚本不做 readline 交互）：
+**agent 流程**（全程用 `ask` 工具交互，脚本不做 readline）：
 
-1. 运行 `--list` → 自动读取配置，列出供应商（编号 + baseUrl + 模型数 + key 来源）
-2. 用 `ask` 工具让用户选择要移除的供应商（**可多选**，展示编号/名称/baseUrl/模型数供分辨）
-3. 运行 `--name "a,b"` → 一次移除多个供应商（支持名称或编号）
+1. 运行 `--list` → 自动读取配置，列出供应商（编号仅用于查看数量；含 baseUrl、模型数、key 来源）
+2. 用 `ask` 让用户**多选**要移除的供应商（`multi: true`，每个选项展示供应商名 + baseUrl + 模型数）
+3. 用 `ask` 让用户**确认**所选供应商列表（y/N）
+4. 运行 `--name "a,b"` → 一次移除多个供应商（填选中的供应商名）
 
 **参数**（`OVER`）：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `name` | `""` | 要移除的供应商名，**逗号分隔多选**，支持名称或编号（如 `"coderxiaoc,codex2api"` 或 `"1,3"`） |
+| `name` | `""` | 要移除的供应商名，**逗号分隔多选**（如 `"coderxiaoc,codex2api"`） |
 | `list` | `false` | 列出供应商（自动读配置，不删除） |
 | `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 | `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
@@ -147,7 +150,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 ```
 
 ```js
-// 移除指定供应商（多选：名称或编号逗号分隔）
+// 移除指定供应商（多选：名称逗号分隔）
 let code = await read("skill://omp-provider/remove.mjs");
 const OVER = { name: "coderxiaoc,codex2api", list: false, file: "", env: "" };
 code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\", env: \"\" };",
@@ -155,9 +158,9 @@ code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\", env
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-- `--list` 自动读取配置文件并列出供应商（含 baseUrl、模型数、key 来源），供用户选择。
-- `--name` 移除指定供应商，**逗号分隔多选**（支持名称 `"a,b"` 或编号 `"1,3"`，可混用）。
-- ask 询问时把每个供应商的编号/名称/baseUrl/模型数一并展示，帮助用户分辨要移除哪些（可多选）。
+- `--list` 自动读取配置文件并列出供应商（编号仅用于查看数量；含 baseUrl、模型数、key 来源）。
+- 用 `ask`（`multi: true`）收集用户多选，再用 `ask`（y/N）确认后落入 `name` 参数（逗号分隔供应商名）。
+- `name` 填**供应商名**（逗号分隔），不填编号。
 - 移除时同步清理 `.env` 中的对应 key 变量。
 - 移除后重开会话生效。
 
@@ -168,4 +171,4 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 - **供应商名大小写敏感**：`Coderxiaoc` ≠ `coderxiaoc`，`disabledProviders` 精确匹配。
 - **写入后重开会话生效**：`register` 写完后需重启 omp 会话才可见。
 - **`register` 只写入不原地生效**：脚本不触发 omp 重载。需要重开会话才能使用新的供应商。
-- **`models` 参数逗号分隔**：`"1, 3, 5"` 带空格也可解析（自动 trim）。
+- **`models` / `name` 参数逗号分隔**：填模型 id 或供应商名，逗号分隔、自动 trim。
