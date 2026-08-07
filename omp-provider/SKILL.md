@@ -121,14 +121,14 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 **agent 流程**（与 register 相同，脚本不做 readline 交互）：
 
 1. 运行 `--list` → 自动读取配置，列出供应商（编号 + baseUrl + 模型数 + key 来源）
-2. 用 `ask` 工具让用户选择要移除的供应商（**展示每个供应商的编号、名称、baseUrl、模型数**，供用户分辨）
-3. 运行 `--name <供应商名>` → 移除并确认
+2. 用 `ask` 工具让用户选择要移除的供应商（**可多选**，展示编号/名称/baseUrl/模型数供分辨）
+3. 运行 `--name "a,b"` → 一次移除多个供应商（支持名称或编号）
 
 **参数**（`OVER`）：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `name` | `""` | 要移除的供应商名 |
+| `name` | `""` | 要移除的供应商名，**逗号分隔多选**，支持名称或编号（如 `"coderxiaoc,codex2api"` 或 `"1,3"`） |
 | `list` | `false` | 列出供应商（自动读配置，不删除） |
 | `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 
@@ -144,17 +144,17 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 ```
 
 ```js
-// 移除指定供应商
+// 移除指定供应商（多选：名称或编号逗号分隔）
 let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "coderxiaoc", list: false, file: "" };
+const OVER = { name: "coderxiaoc,codex2api", list: false, file: "" };
 code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
 - `--list` 自动读取配置文件并列出供应商（含 baseUrl、模型数、key 来源），供用户选择。
-- `--name` 移除指定供应商。
-- ask 询问时把每个供应商的编号/名称/baseUrl/模型数一并展示，帮助用户分辨要移除哪个。
+- `--name` 移除指定供应商，**逗号分隔多选**（支持名称 `"a,b"` 或编号 `"1,3"`，可混用）。
+- ask 询问时把每个供应商的编号/名称/baseUrl/模型数一并展示，帮助用户分辨要移除哪些（可多选）。
 - 移除后重开会话生效。
 
 ## 5. 常见坑

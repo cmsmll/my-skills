@@ -2,7 +2,7 @@
 // omp-provider remove —— 移除供应商
 // 用法（agent 通过 ask 工具交互，脚本不做 readline）:
 //   node remove.mjs --list                  # 自动读配置，列出供应商
-//   node remove.mjs --name <供应商名>      # 移除指定供应商
+//   node remove.mjs --name "a,b"            # 移除指定供应商（多选，名称或编号）
 //   node remove.mjs --list -f <models.yml>  # 指定配置文件
 // 全程不打印明文 key。
 
@@ -119,23 +119,43 @@ async function main() {
     return;
   }
 
-  // --name：移除指定供应商
+  // --name：移除指定供应商（逗号分隔多选）
   if (!opts.name) {
-    await say("✗ 需要 --list 查看后 --name 指定要移除的供应商");
+    await say("✗ 需要 --list 查看后 --name 指定要移除的供应商（逗号分隔多选）");
     if (typeof process !== "undefined") process.exitCode = 1;
     return;
   }
 
-  const { ok, content: newContent } = removeProvider(content, opts.name);
-  if (!ok) {
-    await say(`✗ 未找到供应商 "${opts.name}"。可用：${providers.map((p) => p.name).join(", ")}`);
+  // 解析多选：逗号分隔 + 支持编号（1,3 或 a,b）
+  const picks = opts.name.split(",").map((s) => s.trim()).filter(Boolean);
+  const targets = [];
+  for (const p of picks) {
+    const n = Number(p);
+    if (!isNaN(n) && n >= 1 && n <= providers.length) {
+      targets.push(providers[n - 1].name);
+    } else if (providers.some((x) => x.name === p)) {
+      targets.push(p);
+    } else {
+      await say(`⚠ 未找到 "${p}"，跳过`);
+    }
+  }
+  const unique = [...new Set(targets)];
+  if (!unique.length) {
+    await say(`✗ 未匹配到任何供应商。可用：${providers.map((p) => p.name).join(", ")}`);
     if (typeof process !== "undefined") process.exitCode = 1;
     return;
   }
 
-  await fsMod.promises.writeFile(used, newContent, "utf8");
-  const remaining = providers.filter((p) => p.name !== opts.name).map((p) => p.name);
-  await say(`✓ 已移除供应商 "${opts.name}"（${norm(used)}）`);
+  // 逐个移除
+  let content2 = content;
+  for (const t of unique) {
+    const { ok, content: newC } = removeProvider(content2, t);
+    if (ok) content2 = newC;
+  }
+
+  await fsMod.promises.writeFile(used, content2, "utf8");
+  const remaining = providers.filter((p) => !unique.includes(p.name)).map((p) => p.name);
+  await say(`✓ 已移除供应商: ${unique.join(", ")}（${norm(used)}）`);
   await say(`  剩余供应商: ${remaining.join(", ") || "无"}`);
   await say(`  重开会话后生效`);
 }
