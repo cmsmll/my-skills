@@ -114,49 +114,27 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ## 4. remove — 移除供应商
 
-从配置中删除指定供应商及其模型。支持三种模式：`--name` 直接指定、`--interactive` TUI 选择（同 register 的交互模式）、`--list` 仅列出。
+直接运行即显示 TUI 列表，选择编号 → 确认 → 删除。
 
 **参数**（`OVER`）：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `name` | `""` | 要移除的供应商名 |
-| `list` | `false` | 列出可移除的供应商（不删除） |
-| `interactive` | `false` | 交互模式，编号/名称多选 |
 | `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
 
 **示例**：
 
 ```js
-// 列出可移除的供应商
+// 直接运行，TUI 选择
 let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "", list: true, interactive: false, file: "" };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, interactive: false, file: \"\" };",
+const OVER = { file: "" };
+code = code.replace("const OVERRIDE = { file: \"\" };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-```js
-// 移除指定供应商（直接指定）
-let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "coderxiaoc", list: false, interactive: false, file: "" };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, interactive: false, file: \"\" };",
-  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
-await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
-```
-
-```js
-// 交互模式（编号/名称多选，带确认）
-let code = await read("skill://omp-provider/remove.mjs");
-const OVER = { name: "", list: false, interactive: true, file: "" };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, interactive: false, file: \"\" };",
-  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
-await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
-```
-
-- 交互模式输出编号列表，支持逗号分隔多选或供应商名输入。
-- 选择后显示待移除列表，需确认 `y/N` 才执行。
-- 用 `--list` 先查看可移除的供应商名。
+- 输出编号列表，输入逗号分隔编号多选。
+- 确认 `y/N` 后执行删除。
 - 移除后重开会话生效。
 
 ## 5. 常见坑

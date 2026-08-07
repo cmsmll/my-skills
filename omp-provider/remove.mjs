@@ -1,13 +1,11 @@
 #!/usr/bin/env node
-// omp-provider remove —— 移除供应商（从 models.yml 删除指定 provider）
+// omp-provider remove —— 移除供应商（TUI 选择 → 确认 → 删除）
 // 用法:
-//   node remove.mjs --name <供应商名>                     # 移除指定供应商
-//   node remove.mjs --interactive                        # 交互模式（编号/名称选择，多选）
-//   node remove.mjs --list                               # 列出可移除的供应商名
-//   node remove.mjs --name <供应商名> -f <models.yml>     # 指定配置文件
+//   node remove.mjs                        # 交互选择要移除的供应商
+//   node remove.mjs -f <models.yml>        # 指定配置文件
 // 全程不打印明文 key。
 
-const OVERRIDE = { name: "", list: false, interactive: false, file: "" };
+const OVERRIDE = { file: "" };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
 const readline = typeof Bun !== "undefined" ? null : await import("node:readline").catch(() => null);
@@ -63,7 +61,6 @@ function parseProvidersWithRange(content) {
     }
   }
   if (cur) providers.push(cur);
-  // 计算 end：每个供应商从 start 到下一供应商 start（或文件尾）
   for (let i = 0; i < providers.length; i++) {
     providers[i].end = i + 1 < providers.length ? providers[i + 1].start - 1 : lines.length - 1;
   }
@@ -75,9 +72,7 @@ function removeProvider(content, name) {
   const { providers, lines } = parseProvidersWithRange(content);
   const target = providers.find((p) => p.name === name);
   if (!target) return { ok: false, content: null };
-  // 删除 start..end 行（含空行边界清理）
   const newLines = lines.filter((_, i) => i < target.start || i > target.end);
-  // 清理连续空行（保留一个）
   let out = "";
   for (const l of newLines) {
     if (l.trim() === "" && out.endsWith("\n\n")) continue;
@@ -89,23 +84,19 @@ function removeProvider(content, name) {
 
 async function main() {
   const argv = (process.argv || []).slice(2).filter((a) => a && !a.startsWith("_") && !a.includes("omp_worker"));
-  const opts = { ...OVERRIDE };
+  let cfgOverride = "";
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]; const next = () => argv[++i];
     switch (a) {
-      case "--name": opts.name = next() ?? ""; break;
-      case "--list": opts.list = true; break;
-      case "--interactive": opts.interactive = true; break;
-      case "-f": case "--file": opts.file = next() ?? ""; break;
+      case "-f": case "--file": cfgOverride = next() ?? ""; break;
       case "-h": case "--help":
-        await say("用法: node remove.mjs --name <供应商名> [-f models.yml] | --interactive | --list");
-        break;
-      default: opts.name = a;
+        await say("用法: node remove.mjs  [-f models.yml]");
+        return;
     }
   }
 
   const home = process.env.USERPROFILE || process.env.HOME || "";
-  let cfg = opts.file || `${home}/.omp/agent/models.yml`;
+  let cfg = cfgOverride || `${home}/.omp/agent/models.yml`;
   const norm = (p) => String(p).replace(/\\/g, "/");
 
   let content = null, used = "";
@@ -121,75 +112,40 @@ async function main() {
   const providers = parseProvidersWithRange(content).providers;
   if (!providers.length) { await say("⚠ 配置里没有 providers 块"); return; }
 
-  // --list 模式
-  if (opts.list) {
-    await say(`▸ 配置文件: ${norm(used)}`);
-    await say("可移除的供应商：");
-    for (const p of providers) await say(`  - ${p.name}`);
-    return;
+  // TUI：编号列表 → 选择 → 确认
+  await say(`▸ 配置文件: ${norm(used)}`);
+  await say("选择要移除的供应商：");
+  for (let i = 0; i < providers.length; i++) {
+    await say(`  [${i + 1}] ${providers[i].name}`);
   }
 
-  // 交互模式：编号/名称选择（多选）
-  let targets = [];
-  if (opts.interactive) {
-    await say(`▸ 配置文件: ${norm(used)}`);
-    await say("可移除的供应商：");
-    for (let i = 0; i < providers.length; i++) {
-      await say(`  [${i + 1}] ${providers[i].name}`);
+  const ans = await ask("\n输入编号（逗号分隔多选）: ");
+  const targets = [];
+  for (const p of ans.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const n = Number(p);
+    if (!isNaN(n) && n >= 1 && n <= providers.length) {
+      targets.push(providers[n - 1].name);
+    } else {
+      await say(`⚠ 无效编号 "${p}"，跳过`);
     }
-    const ans = await ask("\n输入编号（逗号分隔）或供应商名: ");
-    for (const p of ans.split(",").map((s) => s.trim()).filter(Boolean)) {
-      const n = Number(p);
-      if (!isNaN(n) && n >= 1 && n <= providers.length) {
-        targets.push(providers[n - 1].name);
-      } else if (providers.some((x) => x.name === p)) {
-        targets.push(p);
-      } else {
-        await say(`⚠ 未识别 "${p}"，跳过`);
-      }
-    }
-    targets = [...new Set(targets)]; // 去重
-    if (!targets.length) {
-      await say("✗ 未选择任何供应商，取消");
-      return;
-    }
-    await say(`\n将移除 ${targets.length} 个供应商：${targets.join(", ")}`);
-    const confirm = await ask("确认？y/N: ");
-    if (confirm.toLowerCase() !== "y") {
-      await say("✗ 已取消");
-      return;
-    }
-  } else if (opts.name) {
-    targets = [opts.name];
-  } else {
-    await say("✗ 需要 --name <供应商名>、--interactive（交互选择）或 --list（查看列表）");
-    if (typeof process !== "undefined") process.exitCode = 1;
-    return;
   }
+  const unique = [...new Set(targets)];
+  if (!unique.length) { await say("✗ 未选择，取消"); return; }
 
-  // 执行移除
+  await say(`\n将移除 ${unique.length} 个供应商：${unique.join(", ")}`);
+  const confirm = await ask("确认？y/N: ");
+  if (confirm.toLowerCase() !== "y") { await say("✗ 已取消"); return; }
+
+  // 执行
   let content2 = content;
-  const found = [];
-  const missing = [];
-  for (const t of targets) {
-    const { ok, content: newContent } = removeProvider(content2, t);
-    if (!ok) { missing.push(t); continue; }
-    content2 = newContent;
-    found.push(t);
-  }
-
-  if (!found.length) {
-    await say(`✗ 未找到供应商：${missing.join(", ")}。可用：${providers.map((p) => p.name).join(", ")}`);
-    if (typeof process !== "undefined") process.exitCode = 1;
-    return;
-  }
-  if (missing.length) {
-    await say(`⚠ 未找到并跳过：${missing.join(", ")}`);
+  for (const t of unique) {
+    const { ok, content: newC } = removeProvider(content2, t);
+    if (ok) content2 = newC;
   }
 
   await fsMod.promises.writeFile(used, content2, "utf8");
-  await say(`✓ 已移除供应商: ${found.join(", ")}（${norm(used)}）`);
-  const remaining = providers.filter((p) => !found.includes(p.name)).map((p) => p.name);
+  const remaining = providers.filter((p) => !unique.includes(p.name)).map((p) => p.name);
+  await say(`✓ 已移除: ${unique.join(", ")}（${norm(used)}）`);
   await say(`  剩余供应商: ${remaining.join(", ") || "无"}`);
   await say(`  重开会话后生效`);
 }
