@@ -8,7 +8,7 @@
 //   node register.mjs --interactive                        # 交互模式（stdin 输入）
 // 全程不打印明文 key。
 
-const OVERRIDE = { url: "", key: "", name: "", models: "", all: false, interactive: false, file: "", timeout: 8 };
+const OVERRIDE = { url: "", key: "", name: "", models: "", all: false, interactive: false, file: "", env: "", timeout: 8 };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
 const pathMod = await import("node:path");
@@ -148,6 +148,28 @@ function parseProviderNames(content) {
   return names;
 }
 
+// —— 由供应商名生成 env 变量名（大写 + _API_KEY） ——
+function envVarName(name) {
+  const base = name.replace(/[^A-Za-z0-9_]/g, "_").replace(/^[0-9]/, "_$&").toUpperCase();
+  return `${base}_API_KEY`;
+}
+
+// —— 把 key 写入 .env：已有同名变量则替换，否则追加 ——
+async function writeEnvKey(envPath, varName, key) {
+  let content = "";
+  try { content = await fsMod.promises.readFile(envPath, "utf8"); } catch { /* 文件不存在，创建 */ }
+  const re = new RegExp(`^${varName}=.*$`, "m");
+  const line = `${varName}=${key}`;
+  if (re.test(content)) {
+    content = content.replace(re, line);
+  } else {
+    if (content.length > 0 && !content.endsWith("\n")) content += "\n";
+    content += line + "\n";
+  }
+  await fsMod.promises.writeFile(envPath, content, "utf8");
+  return content;
+}
+
 async function main() {
   const argv = (process.argv || []).slice(2).filter((a) => a && !a.startsWith("_") && !a.includes("omp_worker"));
   const opts = { ...OVERRIDE };
@@ -161,9 +183,10 @@ async function main() {
       case "--all": opts.all = true; break;
       case "--interactive": opts.interactive = true; break;
       case "-f": case "--file": opts.file = next() ?? ""; break;
+      case "--env": opts.env = next() ?? ""; break;
       case "-t": case "--timeout": { const n = Number(next()); if (n > 0) opts.timeout = n; break; }
       case "-h": case "--help":
-        await say("用法: node register.mjs --url <url> --key <key> [--name <name>] [--all|--models <idx>] [-t 超时秒]");
+        await say("用法: node register.mjs --url <url> --key <key> [--name <name>] [--all|--models <idx>] [--env .env路径] [-t 超时秒]");
         await say("       node register.mjs --interactive");
         break;
       default: opts.url = a;
@@ -252,9 +275,10 @@ async function main() {
     return; // 无选择，不注册
   }
 
-  // 写入 models.yml
+  // 写入：key 落盘到 .env，models.yml 只存 env 变量名
   const home = process.env.USERPROFILE || process.env.HOME || "";
   const cfg = opts.file || pathMod.join(home, ".omp", "agent", "models.yml");
+  const envPath = opts.env || pathMod.join(home, ".omp", "agent", ".env");
   const norm = (p) => String(p).replace(/\\/g, "/");
 
   // 检查同名供应商
@@ -277,8 +301,13 @@ async function main() {
     }
   }
 
-  await writeModelsYaml(cfg, name, opts.url, opts.key, selected);
+  const varName = envVarName(name);
+  await writeEnvKey(envPath, varName, opts.key);
+  await say(`✓ API Key 已写入 ${norm(envPath)}（${varName}）`);
+
+  await writeModelsYaml(cfg, name, opts.url, varName, selected);
   await say(`\n✓ ${name} 已注册到 ${norm(cfg)}`);
+  await say(`  apiKey 引用: ${varName}（omp 启动时从 .env 加载）`);
   await say(`  注册模型: ${selected.join(", ")}`);
   await say(`  重开会话后生效`);
 }

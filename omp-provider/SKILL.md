@@ -64,8 +64,11 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 | `name` | `""` | 供应商名，留空自动从 URL 生成 |
 | `models` | `""` | 逗号分隔的模型编号或 id，如 `"1,3,5"` 或 `"gpt-4,gpt-3.5"` |
 | `all` | `false` | 注册全部模型 |
-| `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+| `file` | `""` | models.yml 路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+| `env` | `""` | .env 路径，默认 `$USERPROFILE/.omp/agent/.env` |
 | `timeout` | `8` | 探测超时秒 |
+
+**key 存储**：注册时 API Key 写入 `.env`（默认 `~/.omp/agent/.env`，omp 启动自动加载），`models.yml` 只存 env 变量名（供应商名大写 + `_API_KEY`），不落明文。可用 `--env` 指定其它 .env 文件。
 
 **探测模式**（仅列出模型，不写入）：
 
@@ -81,8 +84,8 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 ```js
 let code = await read("skill://omp-provider/register.mjs");
-const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "my-provider", models: "1,3,5", all: false, interactive: false, file: "", timeout: 8 };
-code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", timeout: 8 };",
+const OVER = { url: "https://example.com/v1", key: "sk-xxx", name: "my-provider", models: "1,3,5", all: false, interactive: false, file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { url: \"\", key: \"\", name: \"\", models: \"\", all: false, interactive: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -91,6 +94,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 - `all: true` 注册全部模型。
 - 供应商不可用（HTTP 非 200）不注册。
 - 同名供应商已存在时提示覆盖确认。
+- **key 不落明文**：写入 `~/.omp/agent/.env`，models.yml 的 `apiKey` 是生成的 env 变量名。
 
 ## 3. list — 查看供应商模型
 
