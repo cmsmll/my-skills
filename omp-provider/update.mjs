@@ -7,7 +7,7 @@
 //   node update.mjs --name "provider" --all      # 探测后自动追加全部新增模型
 // 全程不打印 key。
 
-const OVERRIDE = { name: "", list: false, probe: false, add: "", all: false, file: "", env: "", timeout: 8 };
+const OVERRIDE = { name: "", list: false, check: false, probe: false, add: "", all: false, file: "", env: "", timeout: 8 };
 
 const fsMod = globalThis.fs ?? (await import("node:fs"));
 
@@ -142,6 +142,7 @@ async function main() {
     switch (a) {
       case "--name": opts.name = next() ?? ""; break;
       case "--list": opts.list = true; break;
+      case "--check": opts.check = true; break;
       case "--probe": opts.probe = true; break;
       case "--add": opts.add = next() ?? ""; break;
       case "--all": opts.all = true; break;
@@ -171,14 +172,44 @@ async function main() {
   const providers = parseProvidersWithRange(content).providers;
   if (!providers.length) { await say("⚠ 配置里没有 providers 块"); return; }
 
-  // --list
+  // --list：列出供应商；--check 时并行探测各供应商，显示新增模型数量
   if (opts.list) {
     await say(`▸ 配置文件: ${norm(used)}`);
-    await say("当前供应商：");
+    const lines = [];
     for (let i = 0; i < providers.length; i++) {
       const p = providers[i];
-      await say(`  [${i + 1}] ${p.name}  ${p.baseUrl}  ${p.ids.length} 个模型  key: ${keySrc(p)}`);
+      lines.push(`  [${i + 1}] ${p.name}  ${p.baseUrl}  ${p.ids.length} 个模型  key: ${keySrc(p)}`);
     }
+
+    // --check：并行探测，每个供应商标注新增模型数
+    if (opts.check) {
+      const results = await Promise.all(providers.map(async (p) => {
+        if (!p.baseUrl) return { p, err: "缺 baseUrl", fresh: [] };
+        const key = await resolveApiKey(p, envPath);
+        const probe = await probeModels(p.baseUrl, key, opts.timeout * 1000);
+        if (!probe.ok) return { p, err: probe.label, fresh: [] };
+        const configured = new Set(p.ids);
+        return { p, err: "", fresh: probe.ids.filter((id) => !configured.has(id)), server: probe.ids.length };
+      }));
+      const total = results.reduce((s, r) => s + r.fresh.length, 0);
+      await say(`正在探测新增模型...`);
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const tag = r.err ? `探测失败(${r.err})` : (r.fresh.length ? `🔺 新增 ${r.fresh.length} 个` : "已是最新");
+        await say(`  [${i + 1}] ${r.p.name}  ${tag}`);
+      }
+      await say(`合计: ${total} 个新增模型`);
+      await say("__JSON__ " + JSON.stringify({
+        total,
+        providers: results.map((r, i) => ({
+          idx: i + 1, name: r.p.name, err: r.err || "", fresh: r.fresh,
+          freshCount: r.fresh.length, configuredCount: r.p.ids.length,
+        })),
+      }));
+      return;
+    }
+
+    for (const l of lines) await say(l);
     return;
   }
 

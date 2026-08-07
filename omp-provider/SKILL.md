@@ -189,10 +189,10 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 
 **agent 流程**（全程用 `ask` 工具交互，脚本不做 readline）：
 
-1. 运行 `--list` → 列出供应商（编号仅查看数量；含 baseUrl、模型数、key 来源）
-2. 用 `ask` 让用户选择要更新的供应商
+1. 运行 `--list --check` → 列出供应商并**并行探测每个供应商的新增模型数**（标注「🔺 新增 N 个」/「已是最新」/探测失败），汇总 `total`
+2. 用 `ask` 让用户选择要更新的供应商，**每选项展示「供应商名（新增 N 个）」**，`multi: true`；可在首项加「全部（合计 N 个）」全选
 3. 运行 `--name <供应商> --probe` → 探测该供应商服务器模型，**标记 🔺 新增（未配置）**；输出 `__JSON__` 含 fresh 列表
-4. 用 `ask`（`multi: true`）让用户多选要追加的新模型，**第一项固定为「✅ 全部新增（N 个）」**（N = 新增模型数，从 `__JSON__.fresh.length` 取）；无新增时提示「已是最新」不询问
+4. 用 `ask`（`multi: true`）让用户多选要追加的新模型，**第一项固定为「✅ 全部新增（N 个）」**（N = `__JSON__.fresh.length`）；无新增时提示「已是最新」不询问
 5. 选了「全部新增」→ 运行 `--all`；选了部分 → `--add "id1,id2"`（按所选）→ 追加写入
 
 **参数**（`OVER`）：
@@ -200,7 +200,8 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `name` | `""` | 要更新的供应商名或编号 |
-| `list` | `false` | 列出供应商（自动读配置，不修改） |
+| `list` | `false` | 列出供应商（自动读配置，不修改）；配合 `check` 显示新增数 |
+| `check` | `false` | 与 `--list` 同用：并行探测各供应商，标注新增模型数 |
 | `probe` | `false` | 探测该供应商服务器模型，标记新增（不写入） |
 | `all` | `false` | 探测后自动追加**全部**新增模型 |
 | `add` | `""` | 按逗号分隔的模型 id 追加（跳过已在配置中的） |
@@ -211,10 +212,19 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 **示例**：
 
 ```js
+// 列出供应商并探测各供应商新增模型数（供应商选择页用）
+let code = await read("skill://omp-provider/update.mjs");
+const OVER = { name: "", list: true, check: true, probe: false, all: false, add: "", file: "", env: "", timeout: 8 };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, check: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+```js
 // 探测某供应商（看新增模型）
 let code = await read("skill://omp-provider/update.mjs");
 const OVER = { name: "sensenova", list: false, probe: true, all: false, add: "", file: "", env: "", timeout: 8 };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+code = code.replace("const OVERRIDE = { name: \"\", list: false, check: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -223,7 +233,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 // 全部新增模型追加
 let code = await read("skill://omp-provider/update.mjs");
 const OVER = { name: "sensenova", list: false, probe: false, all: true, add: "", file: "", env: "", timeout: 8 };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+code = code.replace("const OVERRIDE = { name: \"\", list: false, check: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
@@ -232,7 +242,7 @@ await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") +
 // 按所选 id 追加（多选）
 let code = await read("skill://omp-provider/update.mjs");
 const OVER = { name: "sensenova", list: false, probe: false, all: false, add: "new-model-a,new-model-b", file: "", env: "", timeout: 8 };
-code = code.replace("const OVERRIDE = { name: \"\", list: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
+code = code.replace("const OVERRIDE = { name: \"\", list: false, check: false, probe: false, add: \"\", all: false, file: \"\", env: \"\", timeout: 8 };",
   "const OVERRIDE = " + JSON.stringify(OVER) + ";");
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
