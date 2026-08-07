@@ -112,7 +112,42 @@ code = code.replace("const OVERRIDE = { file: \"\" };",
 await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
 ```
 
-## 4. 常见坑
+## 4. remove — 移除供应商
+
+从配置中删除指定供应商及其模型。
+
+**参数**（`OVER`）：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `name` | `""` | 要移除的供应商名 |
+| `list` | `false` | 列出可移除的供应商（不删除） |
+| `file` | `""` | 配置文件路径，默认 `$USERPROFILE/.omp/agent/models.yml` |
+
+**示例**：
+
+```js
+// 列出可移除的供应商
+let code = await read("skill://omp-provider/remove.mjs");
+const OVER = { name: "", list: true, file: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+```js
+// 移除指定供应商
+let code = await read("skill://omp-provider/remove.mjs");
+const OVER = { name: "coderxiaoc", list: false, file: "" };
+code = code.replace("const OVERRIDE = { name: \"\", list: false, file: \"\" };",
+  "const OVERRIDE = " + JSON.stringify(OVER) + ";");
+await new Function("return (async () => {\n" + code.replace(/^#![^\n]*\n/, "") + "\n})()")();
+```
+
+- 用 `--list` 先查看可移除的供应商名。
+- 移除后重开会话生效。
+
+## 5. 常见坑
 
 - **路径解析**：Windows 上 `bash` 的 `/tmp` 与 `node` 的 `/tmp` 可能映射到不同盘符。传给 `-f` 时用绝对路径（如 `C:/Users/...`）或系统环境变量展开后的路径。
 - **`models.yml` vs `models.yaml`**：脚本优先 `.yml`，缺省回退 `.yaml`。
